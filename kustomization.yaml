@@ -8,6 +8,7 @@ resources:
   - deployment/namespace.yml
   - deployment/deployment.yml
   - deployment/service.yml
+  - deployment/route.yml
 
 configMapGenerator:
   - name: virtio-msi-host-scripts

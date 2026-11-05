@@ -1,0 +1,13 @@
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: virtio-msi-host
+  labels:
+    app: virtio-msi-host
+spec:
+  to:
+    kind: Service
+    name: virtio-msi-host
+  port:
+    targetPort: http

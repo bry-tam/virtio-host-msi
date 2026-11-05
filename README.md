@@ -27,7 +27,7 @@ serving the MSI over HTTP from inside the cluster instead.
 | Path | Contents |
 |---|---|
 | `kustomization.yaml` | Kustomize entry point. Applies `deployment/` and generates the script ConfigMap from `bin/`. |
-| `deployment/` | Namespace, Deployment, and Service for the in-cluster web server. |
+| `deployment/` | Namespace, Deployment, Service, and Route for the in-cluster web server. |
 | `bin/Fix-VirtioPaths.ps1` | PowerShell script to run inside each affected Windows VM. Also served by the web server. |
 
 ## How the MSI host works
@@ -41,20 +41,27 @@ The deployment runs a single pod in the `virtio-msi-host` namespace:
    extracts `virtio-win-gt-x64.msi` from the ISO with `bsdtar`, and writes a
    `virtio-win-gt-x64.msi.sha256` checksum file next to it.
 3. Container `httpd` serves the extracted files read-only on port 8080 through the
-   `virtio-msi-host` ClusterIP service.
+   `virtio-msi-host` ClusterIP service. The `virtio-msi-host` Route exposes that service
+   outside the cluster over plain HTTP, so VMs on any network that can reach the cluster
+   ingress can download the files.
 
 `bin/Fix-VirtioPaths.ps1` is packaged into the `virtio-msi-host-scripts` ConfigMap by a
 kustomize `configMapGenerator` and mounted read-only at `/var/www/html/scripts`. The
 generated ConfigMap name carries a content hash, so editing the script and re-applying
 rolls the pod automatically.
 
-The files are then available inside the cluster at:
+The files are then available at `http://<route-host>/...` (see
+[Get the URL](#get-the-url)):
 
 ```
-http://virtio-msi-host.virtio-msi-host.svc.cluster.local:8080/virtio-win-gt-x64.msi
-http://virtio-msi-host.virtio-msi-host.svc.cluster.local:8080/virtio-win-gt-x64.msi.sha256
-http://virtio-msi-host.virtio-msi-host.svc.cluster.local:8080/scripts/Fix-VirtioPaths.ps1
+http://<route-host>/virtio-win-gt-x64.msi
+http://<route-host>/virtio-win-gt-x64.msi.sha256
+http://<route-host>/scripts/Fix-VirtioPaths.ps1
 ```
+
+On the pod network they are also available through the service name,
+`http://virtio-msi-host.virtio-msi-host.svc.cluster.local:8080/`, which is the script's
+default `-MsiUrl` base.
 
 ## Prerequisites
 
@@ -62,11 +69,30 @@ http://virtio-msi-host.virtio-msi-host.svc.cluster.local:8080/scripts/Fix-Virtio
   covers this). Disconnected clusters need both images mirrored, and the image references
   in `deployment/deployment.yml` changed to match.
 - Use the `virtio-win-rhel9` tag that matches your OpenShift version. This repo uses `v4.22`.
-- Windows VMs must be able to resolve and reach `*.svc.cluster.local`. This works for VMs
-  on the default pod network (masquerade). VMs attached only to a bridge or secondary
-  network cannot reach the service.
-- The service is plain HTTP with no authentication. Add a `NetworkPolicy` if you need to
-  restrict who can reach it.
+- Windows VMs must be able to resolve the Route host name (normally through the external
+  DNS record for the cluster apps domain) and reach the cluster ingress address. See
+  [Network reachability](#network-reachability).
+- The Route is plain HTTP and unauthenticated, so the MSI and the script are not
+  encrypted or authenticated in transit. Anyone who can reach the ingress can download
+  them, and the `.sha256` file is served from the same host, so it only catches
+  corruption, not tampering. Restrict access (for example with a Route IP allowlist
+  annotation or a `NetworkPolicy`) or delete the Route when finished.
+
+## Network reachability
+
+A VM does not need to be on the default pod network. The Route goes through the cluster
+ingress, so any VM that can reach the ingress address works, including VMs on a primary
+UDN or CUDN, a VLAN, or a secondary network, as long as the VM's network can reach it and
+its DNS can resolve the Route host name. The in-cluster service name
+(`*.svc.cluster.local`) does not work for these VMs: UDN and CUDN segments are isolated
+from the default network, and VLAN or secondary networks have no path to cluster services,
+so use the Route URL.
+
+If a VM cannot reach the ingress at all, copy the script and `virtio-win-gt-x64.msi` into
+it another way (file share, RDP, WinRM, configuration management) and run
+`.\Fix-VirtioPaths.ps1 -MsiPath <path-to-msi>`.
+
+This has not been tested on a UDN, CUDN, or VLAN-attached VM.
 
 ## Deploy
 
@@ -84,35 +110,51 @@ oc -n virtio-msi-host get pods
 
 The `extract-msi` log should list `virtio-win-gt-x64.msi` and its `.sha256` file.
 
-## Run the script
+### Get the URL
 
-Run the script inside each affected Windows VM from an elevated PowerShell session (Run
-as Administrator). The VM can fetch it straight from the in-cluster host, so nothing has
-to be copied in by hand:
-
-```powershell
-$base = 'http://virtio-msi-host.virtio-msi-host.svc.cluster.local:8080'
-(New-Object System.Net.WebClient).DownloadFile("$base/scripts/Fix-VirtioPaths.ps1", 'C:\Windows\Temp\Fix-VirtioPaths.ps1')
-powershell.exe -ExecutionPolicy Bypass -File C:\Windows\Temp\Fix-VirtioPaths.ps1
+```bash
+oc -n virtio-msi-host get route virtio-msi-host -o jsonpath='http://{.spec.host}{"\n"}'
 ```
 
-The script is plain HTTP from inside the cluster, so review it (or compare it with
-`bin/Fix-VirtioPaths.ps1` in this repo) before running. You can also copy it into the
-guest yourself, for example over RDP, WinRM, or your configuration management tool, and
-use the options below.
+Use that value as the base URL in the VM, for example
+`http://virtio-msi-host-virtio-msi-host.apps.example.com`.
+
+## Run the script
+
+Open PowerShell as Administrator in the VM (right-click, Run as administrator) and run all
+of the commands below in that same window.
+
+Set the base URL to the value from [Get the URL](#get-the-url), check that the VM can reach
+it, then download the script:
 
 ```powershell
-# Default: downloads the MSI from the in-cluster host above
-.\Fix-VirtioPaths.ps1
+$base = 'http://<route-host>'
+Test-NetConnection ([uri]$base).Host -Port 80
+(New-Object System.Net.WebClient).DownloadFile("$base/scripts/Fix-VirtioPaths.ps1", 'C:\Windows\Temp\Fix-VirtioPaths.ps1')
+```
 
-# Use a different URL for the MSI (a sibling .sha256 file must exist at "<url>.sha256")
-.\Fix-VirtioPaths.ps1 -MsiUrl http://host:8080/virtio-win-gt-x64.msi
+`TcpTestSucceeded` must be `True`. Review `C:\Windows\Temp\Fix-VirtioPaths.ps1` (or compare
+it with `bin/Fix-VirtioPaths.ps1` in this repo), then run it:
 
-# Use a local MSI instead of downloading (no hash check)
-.\Fix-VirtioPaths.ps1 -MsiPath D:\virtio-win-gt-x64.msi
+```powershell
+C:\Windows\Temp\Fix-VirtioPaths.ps1 -MsiUrl "$base/virtio-win-gt-x64.msi"
+```
+
+The script runs under the VM's normal PowerShell execution policy and nothing here changes
+it. A file downloaded with `System.Net.WebClient` carries no internet-zone mark, so the
+`RemoteSigned` policy (the Windows Server default) runs it. If your VM uses `Restricted`
+(the Windows client default) or `AllSigned`, follow your own policy for allowing the script
+to run. You can also copy the script into the guest yourself (RDP, WinRM, configuration
+management).
+
+Other options, run from the same window:
+
+```powershell
+# Use a local MSI instead of downloading it (no hash check)
+C:\Windows\Temp\Fix-VirtioPaths.ps1 -MsiPath D:\virtio-win-gt-x64.msi
 
 # Proceed when both 'Drivers' and 'drivers' exist under C:\Windows
-.\Fix-VirtioPaths.ps1 -Force
+C:\Windows\Temp\Fix-VirtioPaths.ps1 -MsiUrl "$base/virtio-win-gt-x64.msi" -Force
 ```
 
 ### What the script does
@@ -150,8 +192,8 @@ byte-for-byte.
 
 Not yet tested:
 
-- The deployment on a cluster.
-- A Windows VM reaching the service and running the script.
+- The deployment and Route on a cluster.
+- A Windows VM downloading from the Route and running the script.
 - Whether the MSI repoints an existing `BalloonService` by itself. The script's
   `sc.exe config` fallback covers it if not.
 - The case where both `Drivers` and `drivers` exist, which needs `-Force`.

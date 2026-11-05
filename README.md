@@ -26,12 +26,13 @@ serving the MSI over HTTP from inside the cluster instead.
 
 | Path | Contents |
 |---|---|
-| `deployment/` | Kustomize deployment of the in-cluster MSI web server. |
-| `bin/Fix-VirtioPaths.ps1` | PowerShell script to run inside each affected Windows VM. |
+| `kustomization.yaml` | Kustomize entry point. Applies `deployment/` and generates the script ConfigMap from `bin/`. |
+| `deployment/` | Namespace, Deployment, and Service for the in-cluster web server. |
+| `bin/Fix-VirtioPaths.ps1` | PowerShell script to run inside each affected Windows VM. Also served by the web server. |
 
 ## How the MSI host works
 
-The deployment in `deployment/` runs a single pod in the `virtio-msi-host` namespace:
+The deployment runs a single pod in the `virtio-msi-host` namespace:
 
 1. Init container `copy-iso` runs
    `registry.redhat.io/container-native-virtualization/virtio-win-rhel9:v4.22` and copies
@@ -42,11 +43,17 @@ The deployment in `deployment/` runs a single pod in the `virtio-msi-host` names
 3. Container `httpd` serves the extracted files read-only on port 8080 through the
    `virtio-msi-host` ClusterIP service.
 
-The MSI is then available inside the cluster at:
+`bin/Fix-VirtioPaths.ps1` is packaged into the `virtio-msi-host-scripts` ConfigMap by a
+kustomize `configMapGenerator` and mounted read-only at `/var/www/html/scripts`. The
+generated ConfigMap name carries a content hash, so editing the script and re-applying
+rolls the pod automatically.
+
+The files are then available inside the cluster at:
 
 ```
 http://virtio-msi-host.virtio-msi-host.svc.cluster.local:8080/virtio-win-gt-x64.msi
 http://virtio-msi-host.virtio-msi-host.svc.cluster.local:8080/virtio-win-gt-x64.msi.sha256
+http://virtio-msi-host.virtio-msi-host.svc.cluster.local:8080/scripts/Fix-VirtioPaths.ps1
 ```
 
 ## Prerequisites
@@ -64,7 +71,7 @@ http://virtio-msi-host.virtio-msi-host.svc.cluster.local:8080/virtio-win-gt-x64.
 ## Deploy
 
 ```bash
-oc apply -k deployment/
+oc apply -k .
 oc -n virtio-msi-host rollout status deploy/virtio-msi-host
 ```
 
@@ -79,9 +86,20 @@ The `extract-msi` log should list `virtio-win-gt-x64.msi` and its `.sha256` file
 
 ## Run the script
 
-Run `bin/Fix-VirtioPaths.ps1` inside each affected Windows VM from an elevated
-PowerShell session (Run as Administrator). Copy the script into the guest first, for
-example over RDP, WinRM, or your configuration management tool.
+Run the script inside each affected Windows VM from an elevated PowerShell session (Run
+as Administrator). The VM can fetch it straight from the in-cluster host, so nothing has
+to be copied in by hand:
+
+```powershell
+$base = 'http://virtio-msi-host.virtio-msi-host.svc.cluster.local:8080'
+(New-Object System.Net.WebClient).DownloadFile("$base/scripts/Fix-VirtioPaths.ps1", 'C:\Windows\Temp\Fix-VirtioPaths.ps1')
+powershell.exe -ExecutionPolicy Bypass -File C:\Windows\Temp\Fix-VirtioPaths.ps1
+```
+
+The script is plain HTTP from inside the cluster, so review it (or compare it with
+`bin/Fix-VirtioPaths.ps1` in this repo) before running. You can also copy it into the
+guest yourself, for example over RDP, WinRM, or your configuration management tool, and
+use the options below.
 
 ```powershell
 # Default: downloads the MSI from the in-cluster host above
@@ -120,13 +138,15 @@ throws, so a non-zero exit code means the fix did not complete.
 ## Remove the MSI host
 
 ```bash
-oc delete -k deployment/
+oc delete -k .
 ```
 
 ## Status
 
 Verified locally with podman: both images pull, `cp` and `bsdtar` exist as assumed, the
-MSI extracts, and httpd serves it with a matching checksum.
+MSI extracts, and httpd serves it with a matching checksum. The rendered kustomization
+references the hashed ConfigMap, and httpd serves a script mounted at `/var/www/html/scripts`
+byte-for-byte.
 
 Not yet tested:
 

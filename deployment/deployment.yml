@@ -61,6 +61,10 @@ spec:
             - name: www
               mountPath: /var/www/html
               readOnly: true
+
+            - name: scripts
+              mountPath: /var/www/html/scripts
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /virtio-win-gt-x64.msi.sha256
@@ -94,3 +98,7 @@ spec:
         - name: www
           emptyDir:
             sizeLimit: 256Mi
+
+        - name: scripts
+          configMap:
+            name: virtio-msi-host-scripts

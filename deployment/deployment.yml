@@ -1,0 +1,96 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: virtio-msi-host
+  labels:
+    app: virtio-msi-host
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: virtio-msi-host
+  template:
+    metadata:
+      labels:
+        app: virtio-msi-host
+    spec:
+      initContainers:
+        # 1. Copy the ISO out of the virtio-win container disk
+        - name: copy-iso
+          image: registry.redhat.io/container-native-virtualization/virtio-win-rhel9:v4.22
+          command: ["sh", "-c", "cp /disk/*.iso /iso/virtio-win.iso"]
+          volumeMounts:
+            - name: iso
+              mountPath: /iso
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+
+        # 2. Extract the MSI from the ISO into the web root and write its checksum
+        - name: extract-msi
+          image: registry.redhat.io/ubi9/httpd-24:9.8-1793639139
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              bsdtar -xf /iso/virtio-win.iso -C /www virtio-win-gt-x64.msi
+              cd /www
+              sha256sum virtio-win-gt-x64.msi > virtio-win-gt-x64.msi.sha256
+              ls -l /www
+          volumeMounts:
+            - name: iso
+              mountPath: /iso
+
+            - name: www
+              mountPath: /www
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+
+      containers:
+        - name: httpd
+          image: registry.redhat.io/ubi9/httpd-24:9.8-1793639139
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            - name: www
+              mountPath: /var/www/html
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /virtio-win-gt-x64.msi.sha256
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+
+      volumes:
+        - name: iso
+          emptyDir:
+            sizeLimit: 2Gi
+
+        - name: www
+          emptyDir:
+            sizeLimit: 256Mi

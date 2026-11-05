@@ -1,0 +1,77 @@
+[CmdletBinding()]
+param(
+    [string]$MsiPath,
+    [string]$MsiUrl = 'http://virtio-msi-host.virtio-msi-host.svc.cluster.local:8080/virtio-win-gt-x64.msi',
+    [switch]$Force
+)
+$ErrorActionPreference = 'Stop'
+Start-Transcript -Path 'C:\Windows\Temp\virtio-cleanup.log' -Append | Out-Null
+
+$Expected = 'C:\Program Files\Virtio-Win\Balloon\blnsvr.exe'
+
+function Get-BalloonExe {
+    $s = Get-CimInstance Win32_Service -Filter "Name='BalloonService'"
+    if ($s -and $s.PathName -match '^\s*"?(.+?\.exe)') { return $Matches[1] }
+}
+
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+          ).IsInRole('Administrators')) { throw 'Run as Administrator.' }
+
+Write-Output "BalloonService exe before: $(Get-BalloonExe)"
+
+# 1. Stop the service and any running blnsvr so the old files are unlocked
+$svc = Get-Service BalloonService -ErrorAction SilentlyContinue
+if ($svc -and $svc.Status -ne 'Stopped') { Stop-Service BalloonService -Force }
+Get-Process blnsvr -ErrorAction SilentlyContinue | Stop-Process -Force
+
+# 2. Install the VirtIO Guest Tools
+if (-not $MsiPath) {
+    $MsiPath = 'C:\Windows\Temp\virtio-win-gt-x64.msi'
+    $wc = New-Object System.Net.WebClient
+    $wc.DownloadFile($MsiUrl, $MsiPath)
+    $want = ($wc.DownloadString("$MsiUrl.sha256").Trim() -split '\s+')[0]
+    $have = (Get-FileHash -LiteralPath $MsiPath -Algorithm SHA256).Hash
+    if ($have -ine $want) { throw "SHA256 mismatch for $MsiUrl (expected $want, got $have)" }
+    Write-Output "Downloaded and verified $MsiUrl"
+}
+$p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList `
+    "/i `"$MsiPath`" /qn /norestart /l*v `"C:\Windows\Temp\virtio-gt-msi.log`""
+if ($p.ExitCode -notin 0, 3010) { throw "MSI failed, exit code $($p.ExitCode)" }
+if ($p.ExitCode -eq 3010) { Write-Warning 'MSI requested a reboot (3010). Schedule one.' }
+if (-not (Test-Path -LiteralPath $Expected)) { throw "MSI did not install $Expected" }
+
+# 3. Make sure the service points at the new exe and is running
+if ((Get-BalloonExe) -ine $Expected) {
+    sc.exe config BalloonService binPath= "`"$Expected`"" | Out-Null
+}
+Start-Service BalloonService
+if ((Get-BalloonExe) -ine $Expected -or (Get-Service BalloonService).Status -ne 'Running') {
+    throw "BalloonService not running from $Expected (now: $(Get-BalloonExe))"
+}
+Write-Output "BalloonService verified: $(Get-BalloonExe)"
+
+# 4. Remove the wrong-case 'Drivers' directory (exact-case match only)
+$dirs  = [IO.Directory]::GetDirectories('C:\Windows')
+$wrong = $dirs | Where-Object { (Split-Path $_ -Leaf) -ceq 'Drivers' }
+$right = $dirs | Where-Object { (Split-Path $_ -Leaf) -ceq 'drivers' }
+if ($wrong) {
+    if ($right -and -not $Force) {
+        throw "Both 'Drivers' and 'drivers' exist under C:\Windows. Windows resolves paths case-insensitively and may delete the wrong one. Test on a clone, then re-run with -Force."
+    }
+    Remove-Item -LiteralPath $wrong -Recurse -Force -ErrorAction Stop
+    $after = [IO.Directory]::GetDirectories('C:\Windows') | ForEach-Object { Split-Path $_ -Leaf }
+    if ($after -ccontains 'Drivers') { throw 'Wrong-case Drivers directory still present.' }
+    if ($right -and -not ($after -ccontains 'drivers')) { throw "The real 'drivers' directory was removed instead!" }
+    Write-Output "Removed $wrong"
+} else {
+    Write-Output "No wrong-case 'Drivers' directory found."
+}
+
+# 5. Sanity check: new install dir should not be writable by Everyone/Users
+$bad = (Get-Acl 'C:\Program Files\Virtio-Win').Access | Where-Object {
+    $_.AccessControlType -eq 'Allow' -and
+    $_.IdentityReference -match 'Everyone|BUILTIN\\Users|Authenticated Users' -and
+    $_.FileSystemRights -match 'Write|Modify|FullControl' }
+if ($bad) { Write-Warning 'Virtio-Win directory has user-writable ACEs:'; $bad | Format-Table }
+
+Stop-Transcript | Out-Null

@@ -171,11 +171,13 @@ C:\Windows\Temp\Fix-VirtioPaths.ps1 -MsiUrl "$base/virtio-win-gt-x64.msi" -Force
 6. Warns if `C:\Program Files\Virtio-Win` is writable by Everyone or Users.
 
 If both `Drivers` and `drivers` exist, Windows resolves paths case-insensitively and a
-delete could remove the wrong one. The script stops in that case unless `-Force` is
-passed. Test on a clone or snapshot first.
+delete could remove the wrong one. The script checks for this before changing anything.
+Unless `-Force` is passed, it prints a white-on-red message block, exits with code 2, and
+makes no changes. The block contains the command to run again, built from the parameters
+you passed plus `-Force`. Test on a clone or snapshot first.
 
 The full transcript is written to `C:\Windows\Temp\virtio-cleanup.log`. Any failure
-throws, so a non-zero exit code means the fix did not complete.
+throws (apart from the `-Force` stop above, which exits with code 2), so a non-zero exit code means the fix did not complete.
 
 ## Remove the MSI host
 

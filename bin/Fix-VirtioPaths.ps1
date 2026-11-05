@@ -14,8 +14,51 @@ function Get-BalloonExe {
     if ($s -and $s.PathName -match '^\s*"?(.+?\.exe)') { return $Matches[1] }
 }
 
+function Write-RedBlock([string[]]$Lines) {
+    $width = ($Lines | Measure-Object -Property Length -Maximum).Maximum + 2
+    try { $width = [Math]::Min($width, $Host.UI.RawUI.WindowSize.Width - 1) } catch { }
+    Write-Host ''
+    foreach ($l in (@('') + $Lines + @(''))) {
+        Write-Host (' ' + $l).PadRight($width) -ForegroundColor White -BackgroundColor Red
+    }
+    Write-Host ''
+}
+
+function Get-RerunCommand($Bound, [string]$Script) {
+    $q = "'"
+    $parts = @('& ' + $q + ($Script -replace $q, ($q + $q)) + $q)
+    foreach ($k in $Bound.Keys) {
+        $v = $Bound[$k]
+        if ($v -is [switch]) {
+            if ($v.IsPresent) { $parts += '-' + $k }
+        } else {
+            $parts += '-' + $k + ' ' + $q + ("$v" -replace $q, ($q + $q)) + $q
+        }
+    }
+    if (-not $Bound.ContainsKey('Force')) { $parts += '-Force' }
+    $parts -join ' '
+}
+
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
           ).IsInRole('Administrators')) { throw 'Run as Administrator.' }
+
+# Pre-flight: stop before changing anything if the wrong-case directory cannot be told apart safely
+$dirs  = [IO.Directory]::GetDirectories('C:\Windows')
+$wrong = $dirs | Where-Object { (Split-Path $_ -Leaf) -ceq 'Drivers' }
+$right = $dirs | Where-Object { (Split-Path $_ -Leaf) -ceq 'drivers' }
+if ($wrong -and $right -and -not $Force) {
+    Write-RedBlock @(
+        'STOPPED - NOTHING HAS BEEN CHANGED',
+        '',
+        "Both 'Drivers' and 'drivers' exist under C:\Windows.",
+        'Windows resolves paths case-insensitively and may delete the wrong one.',
+        'Test on a clone first. If you want to continue, run the script again with -Force:',
+        '',
+        (Get-RerunCommand $PSBoundParameters $PSCommandPath)
+    )
+    Stop-Transcript | Out-Null
+    exit 2
+}
 
 Write-Output "BalloonService exe before: $(Get-BalloonExe)"
 
@@ -51,13 +94,7 @@ if ((Get-BalloonExe) -ine $Expected -or (Get-Service BalloonService).Status -ne 
 Write-Output "BalloonService verified: $(Get-BalloonExe)"
 
 # 4. Remove the wrong-case 'Drivers' directory (exact-case match only)
-$dirs  = [IO.Directory]::GetDirectories('C:\Windows')
-$wrong = $dirs | Where-Object { (Split-Path $_ -Leaf) -ceq 'Drivers' }
-$right = $dirs | Where-Object { (Split-Path $_ -Leaf) -ceq 'drivers' }
 if ($wrong) {
-    if ($right -and -not $Force) {
-        throw "Both 'Drivers' and 'drivers' exist under C:\Windows. Windows resolves paths case-insensitively and may delete the wrong one. Test on a clone, then re-run with -Force."
-    }
     Remove-Item -LiteralPath $wrong -Recurse -Force -ErrorAction Stop
     $after = [IO.Directory]::GetDirectories('C:\Windows') | ForEach-Object { Split-Path $_ -Leaf }
     if ($after -ccontains 'Drivers') { throw 'Wrong-case Drivers directory still present.' }

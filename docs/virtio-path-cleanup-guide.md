@@ -1,9 +1,9 @@
 # Windows VM VirtIO Path Cleanup Guide (RHEL-256976)
 
 This guide describes how to correct Windows VMs migrated to OpenShift Virtualization
-(RHEL-256976) where the guest agent tools were installed to an incorrect path,
-`C:\Windows\Drivers`. That path conflicts with the existing `C:\Windows\drivers` directory
-and has world read/write permissions.
+(RHEL-256976) where the Balloon Service (`BalloonService`, `blnsvr.exe`) was installed to an
+incorrect path, `C:\Windows\Drivers`. That path conflicts with the existing
+`C:\Windows\drivers` directory and has world read/write permissions.
 
 The fix is delivered by the repository [bry-tam/virtio-host-msi](https://github.com/bry-tam/virtio-host-msi). It has
 two parts:

@@ -203,10 +203,12 @@ MSI extracts, and httpd serves it with a matching checksum. The rendered kustomi
 references the hashed ConfigMap, and httpd serves a script mounted at `/var/www/html/scripts`
 byte-for-byte.
 
-Not yet tested:
+Verified separately (reported by the maintainer; test details were not provided):
 
 - The deployment and Route on a cluster.
 - A Windows VM downloading from the Route and running the script.
-- Whether the MSI repoints an existing `BalloonService` by itself. The script's
-  `sc.exe config` fallback covers it if not.
+- Whether the MSI repoints an existing `BalloonService` by itself.
 - The case where both `Drivers` and `drivers` exist, which needs `-Force`.
+
+That verification did not use a UDN. The reachability notes for UDN, CUDN, and VLAN-attached
+VMs above remain untested.

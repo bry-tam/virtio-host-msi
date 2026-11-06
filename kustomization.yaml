@@ -10,6 +10,17 @@ resources:
   - deployment/service.yml
   - deployment/route.yml
 
+# Review and update for your environment (for example a mirror registry or a different
+# virtio-win tag). Each entry replaces the image reference used in deployment/deployment.yml.
+images:
+  - name: registry.redhat.io/container-native-virtualization/virtio-win-rhel9
+    newName: registry.redhat.io/container-native-virtualization/virtio-win-rhel9
+    newTag: v4.22
+
+  - name: registry.redhat.io/ubi9/httpd-24
+    newName: registry.redhat.io/ubi9/httpd-24
+    newTag: 9.8-1793639139
+
 configMapGenerator:
   - name: virtio-msi-host-scripts
     files:

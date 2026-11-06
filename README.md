@@ -29,6 +29,7 @@ serving the MSI over HTTP from inside the cluster instead.
 | `kustomization.yaml` | Kustomize entry point. Applies `deployment/` and generates the script ConfigMap from `bin/`. |
 | `deployment/` | Namespace, Deployment, Service, and Route for the in-cluster web server. |
 | `bin/Fix-VirtioPaths.ps1` | PowerShell script to run inside each affected Windows VM. Also served by the web server. |
+| `docs/virtio-path-cleanup-guide.md` | Step-by-step usage guide, written to be exported to PDF and shared. |
 
 ## How the MSI host works
 
@@ -65,10 +66,10 @@ default `-MsiUrl` base.
 
 ## Prerequisites
 
-- The cluster nodes can pull from `registry.redhat.io` (the global pull secret normally
-  covers this). Disconnected clusters need both images mirrored, and the image references
-  in `deployment/deployment.yml` changed to match.
-- Use the `virtio-win-rhel9` tag that matches your OpenShift version. This repo uses `v4.22`.
+- In disconnected clusters, mirroring the images used by the deployment may be required.
+  The images and tags are set in the `images:` section of `kustomization.yaml`; review and
+  update it for your environment (mirror registry, `virtio-win-rhel9` tag matching your
+  OpenShift version) before applying.
 - Windows VMs must be able to resolve the Route host name (normally through the external
   DNS record for the cluster apps domain) and reach the cluster ingress address. See
   [Network reachability](#network-reachability).
@@ -95,6 +96,15 @@ it another way (file share, RDP, WinRM, configuration management) and run
 This has not been tested on a UDN, CUDN, or VLAN-attached VM.
 
 ## Deploy
+
+Review the `images:` section of `kustomization.yaml` and update it for your environment,
+then preview the rendered images:
+
+```bash
+oc kustomize . | grep 'image:'
+```
+
+Apply it:
 
 ```bash
 oc apply -k .

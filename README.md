@@ -178,7 +178,8 @@ C:\Windows\Temp\Fix-VirtioPaths.ps1 -MsiUrl "$base/virtio-win-gt-x64.msi" -Force
    repointing it with `sc.exe config` if the installer left the old path.
 5. Deletes the wrongly-cased `C:\Windows\Drivers` directory. It matches the exact-case
    name only, and verifies afterwards that the real `C:\Windows\drivers` still exists.
-6. Warns if `C:\Program Files\Virtio-Win` is writable by Everyone or Users.
+6. Prints the ACL (`icacls`) of both `C:\Windows\drivers` and `C:\Program Files\Virtio-Win`,
+   and warns if either is writable by Everyone or Users.
 
 If both `Drivers` and `drivers` exist, Windows resolves paths case-insensitively and a
 delete could remove the wrong one. The script checks for this before changing anything.

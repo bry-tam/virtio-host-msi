@@ -104,11 +104,16 @@ if ($wrong) {
     Write-Output "No wrong-case 'Drivers' directory found."
 }
 
-# 5. Sanity check: new install dir should not be writable by Everyone/Users
-$bad = (Get-Acl 'C:\Program Files\Virtio-Win').Access | Where-Object {
-    $_.AccessControlType -eq 'Allow' -and
-    $_.IdentityReference -match 'Everyone|BUILTIN\\Users|Authenticated Users' -and
-    $_.FileSystemRights -match 'Write|Modify|FullControl' }
-if ($bad) { Write-Warning 'Virtio-Win directory has user-writable ACEs:'; $bad | Format-Table }
+# 5. Sanity check: neither directory should be writable by Everyone/Users
+foreach ($path in 'C:\Windows\drivers', 'C:\Program Files\Virtio-Win') {
+    if (-not (Test-Path -LiteralPath $path)) { Write-Warning "$path not found, ACL not checked."; continue }
+    Write-Output "ACL for ${path}:"
+    icacls $path
+    $bad = (Get-Acl -LiteralPath $path).Access | Where-Object {
+        $_.AccessControlType -eq 'Allow' -and
+        $_.IdentityReference -match 'Everyone|BUILTIN\\Users|Authenticated Users' -and
+        $_.FileSystemRights -match 'Write|Modify|FullControl' }
+    if ($bad) { Write-Warning "$path has user-writable ACEs:"; $bad | Format-Table }
+}
 
 Stop-Transcript | Out-Null

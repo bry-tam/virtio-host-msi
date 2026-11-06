@@ -117,7 +117,7 @@ can reach the MSI host, and records the current state so it can be compared afte
    ```powershell
    Get-CimInstance Win32_Service -Filter "Name='BalloonService'" | Select-Object Name, State, PathName
    Get-ChildItem C:\Windows -Directory | Where-Object { $_.Name -like 'drivers' } | Select-Object Name
-   icacls C:\Windows\Drivers
+   icacls C:\Windows\drivers
    ```
 
    An affected VM shows `BalloonService` with a `PathName` under `C:\Windows\Drivers` and a
@@ -180,7 +180,8 @@ In order:
    the installer left the old path, then starts it.
 6. Deletes the incorrect-case `C:\Windows\Drivers` directory. It matches the exact-case name
    only and verifies afterwards that the real `C:\Windows\drivers` still exists.
-7. Warns if `C:\Program Files\Virtio-Win` is writable by Everyone or Users.
+7. Prints the ACL (`icacls`) of both `C:\Windows\drivers` and `C:\Program Files\Virtio-Win`,
+   and warns if either is writable by Everyone or Users.
 
 Because Windows resolves paths case-insensitively, a delete could remove the wrong directory
 if both `Drivers` and `drivers` exist. In that case, unless `-Force` is passed, the script
@@ -202,6 +203,7 @@ This step confirms that the fix worked in the VM and that the guest agent is hea
    Get-CimInstance Win32_Service -Filter "Name='BalloonService'" | Select-Object Name, State, PathName
    Get-ChildItem C:\Windows -Directory | Where-Object { $_.Name -ceq 'Drivers' }
    Get-Item C:\Windows\drivers
+   icacls C:\Windows\drivers
    icacls "C:\Program Files\Virtio-Win"
    ```
 
@@ -212,7 +214,8 @@ This step confirms that the fix worked in the VM and that the guest agent is hea
      `"C:\Program Files\Virtio-Win\Balloon\blnsvr.exe"`.
    - The `Drivers` (capital D) query returns nothing, and the real `C:\Windows\drivers`
      still exists.
-   - The ACL on `C:\Program Files\Virtio-Win` does not grant Everyone or Users write access.
+   - The ACLs on both `C:\Windows\drivers` and `C:\Program Files\Virtio-Win` do not grant
+     Everyone or Users write access (no `(W)`, `(M)`, or `(F)` entries for those accounts).
 
 3. **Confirm the guest agent in OpenShift (optional):**
    Check that the guest agent is healthy:

@@ -140,7 +140,8 @@ it, then download the script:
 ```powershell
 $base = 'http://<route-host>'
 Test-NetConnection ([uri]$base).Host -Port 80
-(New-Object System.Net.WebClient).DownloadFile("$base/scripts/Fix-VirtioPaths.ps1", 'C:\Windows\Temp\Fix-VirtioPaths.ps1')
+$dest = 'C:\Windows\Temp\Fix-VirtioPaths.ps1'
+(New-Object Net.WebClient).DownloadFile("$base/scripts/Fix-VirtioPaths.ps1", $dest)
 ```
 
 `TcpTestSucceeded` must be `True`. Review `C:\Windows\Temp\Fix-VirtioPaths.ps1` (or compare
@@ -176,8 +177,13 @@ C:\Windows\Temp\Fix-VirtioPaths.ps1 -MsiUrl "$base/virtio-win-gt-x64.msi" -Force
    schedule a reboot.
 4. Confirms `BalloonService` runs from `C:\Program Files\Virtio-Win\Balloon\blnsvr.exe`,
    repointing it with `sc.exe config` if the installer left the old path.
-5. Deletes the wrongly-cased `C:\Windows\Drivers` directory. It matches the exact-case
-   name only, and verifies afterwards that the real `C:\Windows\drivers` still exists.
+5. Removes the wrongly-cased `C:\Windows\Drivers` directory. It matches the exact-case
+   name only. It first requires a `VirtIO` folder inside it, then renames it to
+   `C:\Windows\Drivers_dup` and checks the result before deleting anything: `Drivers_dup`
+   exists, `Drivers` is gone, the real `C:\Windows\drivers` is still there, and `VirtIO` is
+   in `Drivers_dup` and not in `drivers`. Only then is `Drivers_dup` deleted, followed by a
+   final check that the real `drivers` still exists. If any check fails, the script stops
+   and leaves `Drivers_dup` in place for manual inspection.
 6. Prints the ACL (`icacls`) of both `C:\Windows\drivers` and `C:\Program Files\Virtio-Win`,
    and warns if either is writable by Everyone or Users.
 

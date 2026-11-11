@@ -115,8 +115,9 @@ can reach the MSI host, and records the current state so it can be compared afte
    Capture the service path and the directories so the result can be compared:
 
    ```powershell
-   Get-CimInstance Win32_Service -Filter "Name='BalloonService'" | Select-Object Name, State, PathName
-   Get-ChildItem C:\Windows -Directory | Where-Object { $_.Name -like 'drivers' } | Select-Object Name
+   $f = "Name='BalloonService'"
+   Get-CimInstance Win32_Service -Filter $f | Select-Object Name, State, PathName
+   Get-ChildItem C:\Windows -Directory -Filter drivers | Select-Object Name
    icacls C:\Windows\drivers
    ```
 
@@ -133,7 +134,8 @@ installs the VirtIO Guest Tools from the same host and removes the incorrect dir
    In the same window, download the script from the MSI host:
 
    ```powershell
-   (New-Object System.Net.WebClient).DownloadFile("$base/scripts/Fix-VirtioPaths.ps1", 'C:\Windows\Temp\Fix-VirtioPaths.ps1')
+   $dest = 'C:\Windows\Temp\Fix-VirtioPaths.ps1'
+   (New-Object Net.WebClient).DownloadFile("$base/scripts/Fix-VirtioPaths.ps1", $dest)
    ```
 
 2. **Review the script:**
@@ -178,8 +180,13 @@ In order:
 5. Confirms `BalloonService` runs from
    `C:\Program Files\Virtio-Win\Balloon\blnsvr.exe`, repointing it with `sc.exe config` if
    the installer left the old path, then starts it.
-6. Deletes the incorrect-case `C:\Windows\Drivers` directory. It matches the exact-case name
-   only and verifies afterwards that the real `C:\Windows\drivers` still exists.
+6. Removes the incorrect-case `C:\Windows\Drivers` directory. It matches the exact-case name
+   only. It first requires a `VirtIO` folder inside it, then renames it to
+   `C:\Windows\Drivers_dup` and checks the result before deleting anything: `Drivers_dup`
+   exists, `Drivers` is gone, the real `C:\Windows\drivers` is still there, and `VirtIO` is
+   in `Drivers_dup` and not in `drivers`. Only then is `Drivers_dup` deleted, followed by a
+   final check that the real `drivers` still exists. If any check fails, the script throws
+   and leaves `Drivers_dup` in place for manual inspection.
 7. Prints the ACL (`icacls`) of both `C:\Windows\drivers` and `C:\Program Files\Virtio-Win`,
    and warns if either is writable by Everyone or Users.
 
@@ -200,7 +207,8 @@ This step confirms that the fix worked in the VM and that the guest agent is hea
    In the same PowerShell window, run:
 
    ```powershell
-   Get-CimInstance Win32_Service -Filter "Name='BalloonService'" | Select-Object Name, State, PathName
+   $f = "Name='BalloonService'"
+   Get-CimInstance Win32_Service -Filter $f | Select-Object Name, State, PathName
    Get-ChildItem C:\Windows -Directory | Where-Object { $_.Name -ceq 'Drivers' }
    Get-Item C:\Windows\drivers
    icacls C:\Windows\drivers
@@ -252,5 +260,13 @@ installer and script are no longer served over plain HTTP.
 - **Exit code 3010.** Reboot the VM in your maintenance window, then repeat Step 5.
 - **Red message block about `Drivers` and `drivers` both existing.** Confirm on a clone, then
   run the command shown in the block (it already includes `-Force`).
+- **`C:\Windows\Drivers_dup` already exists, or a validation error after the rename.** The
+  script renamed `Drivers` to `Drivers_dup` but stopped before deleting it, for example
+  because `VirtIO` turned up in the real `drivers` directory or the directory layout was not
+  what it expected. Nothing was deleted. Inspect `C:\Windows\Drivers_dup` and
+  `C:\Windows\drivers`, work out which one is the real directory, then remove or restore
+  `Drivers_dup` by hand before re-running (the script refuses to start while it exists).
+- **No VirtIO directory found in `Drivers`.** The script only removes a wrong-case `Drivers`
+  directory that contains a `VirtIO` folder. Inspect the directory manually.
 - **Re-running.** The script can be re-run: it stops the service, reinstalls, and only
-  deletes the wrong-case directory if it is still present.
+  removes the wrong-case directory if it is still present.

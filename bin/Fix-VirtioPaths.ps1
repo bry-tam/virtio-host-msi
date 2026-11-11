@@ -94,12 +94,37 @@ if ((Get-BalloonExe) -ine $Expected -or (Get-Service BalloonService).Status -ne 
 Write-Output "BalloonService verified: $(Get-BalloonExe)"
 
 # 4. Remove the wrong-case 'Drivers' directory (exact-case match only)
+Write-Output "Starting Cleanup Process"
+Write-Output "Validating if $wrong exists for clean up."
 if ($wrong) {
-    Remove-Item -LiteralPath $wrong -Recurse -Force -ErrorAction Stop
-    $after = [IO.Directory]::GetDirectories('C:\Windows') | ForEach-Object { Split-Path $_ -Leaf }
-    if ($after -ccontains 'Drivers') { throw 'Wrong-case Drivers directory still present.' }
-    if ($right -and -not ($after -ccontains 'drivers')) { throw "The real 'drivers' directory was removed instead!" }
-    Write-Output "Removed $wrong"
+    # Confirm that VirtIO directory exists in 'Drivers' directory
+    Write-Output "$wrong found. Attempting to clean up."
+    if (Test-Path -LiteralPath "$wrong\VirtIO") {
+        # Rename 'Drivers' directory to 'Drivers_dup'
+        Write-Output "Renaming $wrong directory"
+        Rename-Item -LiteralPath $wrong -NewName "Drivers_dup" -ErrorAction Stop
+        $dupDir = "C:\Windows\Drivers_dup"
+        Write-Output "Rename $wrong to $dupDir successful. Performing validation checks before deleting $dupDir"
+        # Validate VirtIO exists in "Drivers_dup" directory and not in "drivers"
+        if (Test-Path -LiteralPath "$right\VirtIO") {
+            Write-Output "Validation check failed: VirtIO directory found in $right, which is not expected. Perform manual validation on $right and $dupDir directories and confirm."
+            exit 1
+        }
+        elseif (Test-Path -LiteralPath "$dupDir\VirtIO") {
+            Write-Output "Validation check passed: VirtIO exists in $dupDir. Proceeding to remove $dupDir"
+            Remove-Item -LiteralPath $dupDir -Recurse -ErrorAction Stop
+            # Perform validation check after removing directory
+            $after = [IO.Directory]::GetDirectories('C:\Windows') | ForEach-Object { Split-Path $_ -Leaf }
+            if ($after -ccontains 'Drivers') { throw 'Drivers directory still present.' }
+            if ($after -ccontains 'Drivers_dup') { throw 'Drivers_dup directory still present.' }
+            if ($right -and -not ($after -ccontains 'drivers')) { throw "The real 'drivers' directory was removed instead!" }
+            Write-Output "Successfully cleaned up $wrong and $dupDir. Only $right remains."
+        }
+        else {
+            Write-Output "Could not validate where VirtIO exists. Cannot proceed."
+            exit 1
+        }
+    }
 } else {
     Write-Output "No wrong-case 'Drivers' directory found."
 }

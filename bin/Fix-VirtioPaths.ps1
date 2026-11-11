@@ -60,6 +60,13 @@ if ($wrong -and $right -and -not $Force) {
     exit 2
 }
 
+# Pre-flight: a leftover from an earlier run that stopped after the rename needs a manual look
+$DupName = 'Drivers_dup'
+$DupDir  = "C:\Windows\$DupName"
+if ($dirs | Where-Object { (Split-Path $_ -Leaf) -ieq $DupName }) {
+    throw "$DupDir already exists, probably left by an earlier run that stopped after renaming. Nothing has been changed. Inspect it and C:\Windows\drivers, then remove or restore it before re-running."
+}
+
 Write-Output "BalloonService exe before: $(Get-BalloonExe)"
 
 # 1. Stop the service and any running blnsvr so the old files are unlocked
@@ -93,13 +100,40 @@ if ((Get-BalloonExe) -ine $Expected -or (Get-Service BalloonService).Status -ne 
 }
 Write-Output "BalloonService verified: $(Get-BalloonExe)"
 
-# 4. Remove the wrong-case 'Drivers' directory (exact-case match only)
+# 4. Remove the wrong-case 'Drivers' directory (exact-case match only).
+# It is renamed first and checked, so a case-insensitive path that resolved to the
+# wrong directory is caught while the data still exists. Nothing is deleted until the check passes.
+function Get-WindowsDirNames {
+    [IO.Directory]::GetDirectories('C:\Windows') | ForEach-Object { Split-Path $_ -Leaf }
+}
+
 if ($wrong) {
-    Remove-Item -LiteralPath $wrong -Recurse -Force -ErrorAction Stop
-    $after = [IO.Directory]::GetDirectories('C:\Windows') | ForEach-Object { Split-Path $_ -Leaf }
+    if (-not (Test-Path -LiteralPath "$wrong\VirtIO")) {
+        throw "No VirtIO directory found in $wrong. Refusing to remove it. Inspect $wrong manually."
+    }
+
+    Rename-Item -LiteralPath $wrong -NewName $DupName -ErrorAction Stop
+    Write-Output "Renamed $wrong to $DupDir"
+
+    $names = Get-WindowsDirNames
+    if (-not ($names -ccontains $DupName) -or ($names -ccontains 'Drivers') -or
+        ($right -and -not ($names -ccontains 'drivers'))) {
+        throw "Unexpected directory layout after the rename (found: $($names -join ', ')). Nothing was deleted. Inspect C:\Windows manually; $DupDir is left in place."
+    }
+    if ($right -and (Test-Path -LiteralPath "$right\VirtIO")) {
+        throw "VirtIO directory found in $right, which is not expected. Nothing was deleted. Inspect $right and $DupDir manually; $DupDir is left in place."
+    }
+    if (-not (Test-Path -LiteralPath "$DupDir\VirtIO")) {
+        throw "VirtIO directory not found in $DupDir after the rename. Nothing was deleted. Inspect $DupDir manually; it is left in place."
+    }
+    Write-Output "Validation passed: VirtIO is in $DupDir and not in the real 'drivers' directory"
+
+    Remove-Item -LiteralPath $DupDir -Recurse -Force -ErrorAction Stop
+    $after = Get-WindowsDirNames
     if ($after -ccontains 'Drivers') { throw 'Wrong-case Drivers directory still present.' }
+    if ($after -ccontains $DupName) { throw "$DupDir still present." }
     if ($right -and -not ($after -ccontains 'drivers')) { throw "The real 'drivers' directory was removed instead!" }
-    Write-Output "Removed $wrong"
+    Write-Output "Removed $wrong (via $DupDir)"
 } else {
     Write-Output "No wrong-case 'Drivers' directory found."
 }

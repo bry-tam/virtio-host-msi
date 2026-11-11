@@ -107,15 +107,15 @@ oc kustomize . | grep 'image:'
 Apply it:
 
 ```bash
-oc apply -k .
-oc -n virtio-msi-host rollout status deploy/virtio-msi-host
+oc apply -k .;
+oc -n virtio-msi-host rollout status deploy/virtio-msi-host;
 ```
 
 Check that the MSI was extracted and is being served:
 
 ```bash
-oc -n virtio-msi-host logs deploy/virtio-msi-host -c extract-msi
-oc -n virtio-msi-host get pods
+oc -n virtio-msi-host logs deploy/virtio-msi-host -c extract-msi;
+oc -n virtio-msi-host get pods;
 ```
 
 The `extract-msi` log should list `virtio-win-gt-x64.msi` and its `.sha256` file.
@@ -138,10 +138,10 @@ Set the base URL to the value from [Get the URL](#get-the-url), check that the V
 it, then download the script:
 
 ```powershell
-$base = 'http://<route-host>'
-Test-NetConnection ([uri]$base).Host -Port 80
-$dest = 'C:\Windows\Temp\Fix-VirtioPaths.ps1'
-(New-Object Net.WebClient).DownloadFile("$base/scripts/Fix-VirtioPaths.ps1", $dest)
+$base = 'http://<route-host>';
+Test-NetConnection ([uri]$base).Host -Port 80;
+$dest = 'C:\Windows\Temp\Fix-VirtioPaths.ps1';
+(New-Object Net.WebClient).DownloadFile("$base/scripts/Fix-VirtioPaths.ps1", $dest);
 ```
 
 `TcpTestSucceeded` must be `True`. Review `C:\Windows\Temp\Fix-VirtioPaths.ps1` (or compare
@@ -158,13 +158,17 @@ it. A file downloaded with `System.Net.WebClient` carries no internet-zone mark,
 to run. You can also copy the script into the guest yourself (RDP, WinRM, configuration
 management).
 
-Other options, run from the same window:
+Other options, run one of these from the same window instead of the command above.
+
+To use a local MSI instead of downloading it (no hash check):
 
 ```powershell
-# Use a local MSI instead of downloading it (no hash check)
 C:\Windows\Temp\Fix-VirtioPaths.ps1 -MsiPath D:\virtio-win-gt-x64.msi
+```
 
-# Proceed when both 'Drivers' and 'drivers' exist under C:\Windows
+To proceed when both `Drivers` and `drivers` exist under `C:\Windows`:
+
+```powershell
 C:\Windows\Temp\Fix-VirtioPaths.ps1 -MsiUrl "$base/virtio-win-gt-x64.msi" -Force
 ```
 

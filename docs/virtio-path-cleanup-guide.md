@@ -42,8 +42,8 @@ the deployment works.
    Clone the repository and open `kustomization.yaml`.
 
    ```bash
-   git clone https://github.com/bry-tam/virtio-host-msi.git
-   cd virtio-host-msi
+   git clone https://github.com/bry-tam/virtio-host-msi.git;
+   cd virtio-host-msi;
    ```
 
 2. **Update the images for your environment:**
@@ -60,16 +60,16 @@ the deployment works.
    Apply the kustomization and wait for the rollout:
 
    ```bash
-   oc apply -k .
-   oc -n virtio-msi-host rollout status deploy/virtio-msi-host
+   oc apply -k .;
+   oc -n virtio-msi-host rollout status deploy/virtio-msi-host;
    ```
 
 4. **Verify the deployment:**
    Confirm that the MSI and its checksum file were extracted, and that the pod is Ready:
 
    ```bash
-   oc -n virtio-msi-host logs deploy/virtio-msi-host -c extract-msi
-   oc -n virtio-msi-host get pods,svc,route
+   oc -n virtio-msi-host logs deploy/virtio-msi-host -c extract-msi;
+   oc -n virtio-msi-host get pods,svc,route;
    ```
 
    The log should list `virtio-win-gt-x64.msi` and `virtio-win-gt-x64.msi.sha256`, and the
@@ -104,8 +104,8 @@ can reach the MSI host, and records the current state so it can be compared afte
    Set the base URL and test the connection:
 
    ```powershell
-   $base = '<route-host-url>'
-   Test-NetConnection ([uri]$base).Host -Port 80
+   $base = '<route-host-url>';
+   Test-NetConnection ([uri]$base).Host -Port 80;
    ```
 
    `TcpTestSucceeded` must be `True`. If the name does not resolve or the connection fails,
@@ -115,10 +115,10 @@ can reach the MSI host, and records the current state so it can be compared afte
    Capture the service path and the directories so the result can be compared:
 
    ```powershell
-   $f = "Name='BalloonService'"
-   Get-CimInstance Win32_Service -Filter $f | Select-Object Name, State, PathName
-   Get-ChildItem C:\Windows -Directory -Filter drivers | Select-Object Name
-   icacls C:\Windows\drivers
+   $f = "Name='BalloonService'";
+   Get-CimInstance Win32_Service -Filter $f | Select-Object Name, State, PathName;
+   Get-ChildItem C:\Windows -Directory -Filter drivers | Select-Object Name;
+   icacls C:\Windows\drivers;
    ```
 
    An affected VM shows `BalloonService` with a `PathName` under `C:\Windows\Drivers` and a
@@ -134,8 +134,8 @@ installs the VirtIO Guest Tools from the same host and removes the incorrect dir
    In the same window, download the script from the MSI host:
 
    ```powershell
-   $dest = 'C:\Windows\Temp\Fix-VirtioPaths.ps1'
-   (New-Object Net.WebClient).DownloadFile("$base/scripts/Fix-VirtioPaths.ps1", $dest)
+   $dest = 'C:\Windows\Temp\Fix-VirtioPaths.ps1';
+   (New-Object Net.WebClient).DownloadFile("$base/scripts/Fix-VirtioPaths.ps1", $dest);
    ```
 
 2. **Review the script:**
@@ -156,13 +156,17 @@ installs the VirtIO Guest Tools from the same host and removes the incorrect dir
    or configuration management).
 
 4. **Use other options if needed:**
-   Run from the same window:
+   Run one of these from the same window instead of the command in item 3.
+
+   To use a local MSI instead of downloading it (no hash check):
 
    ```powershell
-   # Use a local MSI instead of downloading it (no hash check)
    C:\Windows\Temp\Fix-VirtioPaths.ps1 -MsiPath D:\virtio-win-gt-x64.msi
+   ```
 
-   # Proceed when both "Drivers" and "drivers" exist under C:\Windows
+   To proceed when both `Drivers` and `drivers` exist under `C:\Windows`:
+
+   ```powershell
    C:\Windows\Temp\Fix-VirtioPaths.ps1 -MsiUrl "$base/virtio-win-gt-x64.msi" -Force
    ```
 
@@ -207,12 +211,12 @@ This step confirms that the fix worked in the VM and that the guest agent is hea
    In the same PowerShell window, run:
 
    ```powershell
-   $f = "Name='BalloonService'"
-   Get-CimInstance Win32_Service -Filter $f | Select-Object Name, State, PathName
-   Get-ChildItem C:\Windows -Directory | Where-Object { $_.Name -ceq 'Drivers' }
-   Get-Item C:\Windows\drivers
-   icacls C:\Windows\drivers
-   icacls "C:\Program Files\Virtio-Win"
+   $f = "Name='BalloonService'";
+   Get-CimInstance Win32_Service -Filter $f | Select-Object Name, State, PathName;
+   Get-ChildItem C:\Windows -Directory | Where-Object { $_.Name -ceq 'Drivers' };
+   Get-Item C:\Windows\drivers;
+   icacls C:\Windows\drivers;
+   icacls "C:\Program Files\Virtio-Win";
    ```
 
 2. **Compare the results:**
